@@ -1,0 +1,253 @@
+#!/usr/bin/env node
+/**
+ * scripts/build.js
+ *
+ * 1. Bundles live-icons into dist/live-icons.js (ESM bundle without external dependencies).
+ * 2. Generates dist/preview.html as a live showcase with CSS styling and the <live-icon> custom elements.
+ */
+
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+const root = join(__dir, '..');
+const dist = join(root, 'dist');
+mkdirSync(dist, { recursive: true });
+
+console.log('Building live-icons...');
+
+// Concatenate modules into a single self-contained script
+// Removing imports/exports and wrapping in an IIFE + ESM export
+const readSrc = file => readFileSync(join(root, 'src', file), 'utf8');
+
+const engineSrc = readSrc('engine.js')
+  .replace(/export const /g, 'const ')
+  .replace(/export {[^}]+};?/g, '');
+
+const presetsSrc = readSrc('presets.js')
+  .replace(/import {[^}]+} from '\.\/engine\.js';/g, '')
+  .replace(/export {[^}]+};?/g, '')
+  .replace(/export const /g, 'const ');
+
+const elementSrc = readSrc('element.js')
+  .replace(/import {[^}]+} from '\.\/engine\.js';/g, '')
+  .replace(/export function defineIcon/g, 'function defineIcon');
+
+const icons = ['bell', 'heart', 'download', 'gear'];
+const iconSources = icons.map(name => {
+  return readSrc(`icons/${name}.js`)
+    .replace(/import [^;]+;/g, '')
+    .replace(/export const gearPath/g, 'const gearPath');
+}).join('\n\n');
+
+const bundle = `/**
+ * Live Icons v0.1.0
+ * Multi-part SVG living icons. Physics-flavoured motion. Zero dependencies.
+ */
+(() => {
+  'use strict';
+
+  // --- ENGINE ---
+  ${engineSrc}
+
+  // --- PRESETS ---
+  ${presetsSrc}
+
+  // --- ELEMENT & REGISTRY ---
+  ${elementSrc}
+
+  // --- REGISTERED ICONS ---
+  ${iconSources}
+
+  // Expose global for non-module scripts
+  if (typeof window !== 'undefined') {
+    window.LiveIcons = { defineIcon, mount, play, osc, stopAnim, finishLoop };
+  }
+})();
+`;
+
+writeFileSync(join(dist, 'live-icons.js'), bundle, 'utf8');
+console.log('✓ Created dist/live-icons.js');
+
+// Generate preview HTML
+const previewHtml = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Living Icons - Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@700;800&display=swap">
+  <style>
+    :root {
+      --bg:#E8ECF1; --surface:#F6F8FA; --wash:#ECF0F4; --stage:#FFFFFF;
+      --ink:#131A24; --muted:#556072; --line:#C9D2DD;
+      --grid:#EDF1F5; --grid-strong:#DCE3EB; --live:#9DAEF7;
+      --accent:#2447F5; --accent-ink:#FFFFFF; --like:#E5484D; --on-fill:#FFFFFF;
+      --display:'Syne',ui-sans-serif,system-ui,sans-serif;
+      --body:'Hanken Grotesk',ui-sans-serif,system-ui,sans-serif;
+      --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg:#0C1118; --surface:#131A24; --wash:#0F1520; --stage:#0A0F16;
+        --ink:#E8EEF6; --muted:#8D9AAD; --line:#243040;
+        --grid:#121A25; --grid-strong:#1A2431; --live:#34478F;
+        --accent:#7790FF; --accent-ink:#0B1018; --like:#FF6B72; --on-fill:#FFFFFF;
+        color-scheme:dark;
+      }
+    }
+    * { box-sizing:border-box }
+    body {
+      background:var(--bg); color:var(--ink);
+      font:400 1rem/1.55 var(--body);
+      margin:0; padding-inline:clamp(16px,4vw,40px);
+      -webkit-font-smoothing:antialiased;
+    }
+    .page { max-width:1080px; margin-inline:auto; padding-block:clamp(28px,6vw,64px); display:grid; gap:clamp(28px,5vw,48px) }
+    header { display:grid; gap:14px; max-width:64ch }
+    .eyebrow { margin:0; font:500 .75rem/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted) }
+    h1 { margin:0; font:800 clamp(2.5rem,8vw,4.5rem)/.95 var(--display); letter-spacing:-.025em; text-wrap:balance }
+    .lede { margin:0; font-size:1.06rem; color:var(--muted) }
+    .hint { margin:0; font-size:.95rem; color:var(--muted) }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:20px }
+    
+    /* Card layout */
+    .card { min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:6px; overflow:hidden; display:grid; grid-template-rows:auto 1fr }
+    .stage { background:var(--wash); border-bottom:1px solid var(--line); display:grid; place-items:center; padding:clamp(28px,6vw,44px) 16px }
+    .pad { --size:clamp(120px,36vw,152px); position:relative; width:var(--size); height:var(--size) }
+    .keyline {
+      --u:calc(var(--size) / 24);
+      position:absolute; inset:0; background-color:var(--stage); box-shadow:0 0 0 1px var(--line);
+      background-image:
+        linear-gradient(var(--grid-strong) 1px,transparent 1px),
+        linear-gradient(90deg,var(--grid-strong) 1px,transparent 1px),
+        linear-gradient(var(--grid) 1px,transparent 1px),
+        linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+      background-size:calc(var(--u) * 6) calc(var(--u) * 6),calc(var(--u) * 6) calc(var(--u) * 6),var(--u) var(--u),var(--u) var(--u);
+    }
+    .keyline::after { content:""; position:absolute; inset:calc(var(--size) / 12); border:1px dashed var(--live); pointer-events:none }
+    .icon-btn {
+      position:absolute; inset:0; display:block; padding:0; margin:0; border:0; background:transparent;
+      color:var(--ink); cursor:pointer; border-radius:2px;
+      -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+      user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
+    }
+    .icon-btn:focus { outline:none }
+    .icon-btn:focus-visible, .icon-btn.is-focus { outline:2px solid var(--accent); outline-offset:6px }
+    .mag { display:block; width:100%; height:100%; transform:translate(var(--mx,0px),var(--my,0px)); transition:transform .2s ease-out }
+    .ic { display:block; width:100%; height:100%; overflow:visible; transform-origin:50% 50%; transition:transform .24s cubic-bezier(.3,1.6,.5,1) }
+    .icon-btn.is-pressed .ic { transform:scale(.9) }
+
+    /* Bell styles */
+    .b-swing { transform-origin:12px 2.4px; transition:opacity .35s }
+    .is-muted .b-swing { opacity:.45 }
+    .b-wave { stroke-dasharray:1 2; stroke-dashoffset:1; opacity:0 }
+    .b-glint { opacity:0; transition:opacity .3s }
+    .is-hover .b-glint { opacity:.9 }
+    .b-badge { transform-box:fill-box; transform-origin:center; transform:scale(0); opacity:0; transition:transform .45s cubic-bezier(.3,1.8,.5,1),opacity .2s }
+    .is-alert .b-badge { transform:scale(1); opacity:1 }
+    .b-dot { fill:var(--accent); stroke:var(--stage); stroke-width:1.5 }
+    .b-ping { fill:none; stroke:var(--accent); stroke-width:1; transform-box:fill-box; transform-origin:center; opacity:0 }
+    .b-slash-halo,.b-slash { stroke-dasharray:1 2; stroke-dashoffset:1; transition:stroke-dashoffset .45s ease }
+    .b-slash-halo { stroke:var(--stage); stroke-width:4 }
+    .is-muted .b-slash-halo, .is-muted .b-slash { stroke-dashoffset:0 }
+
+    /* Heart styles */
+    .h-body { transform-origin:12px 13px }
+    .h-fill { fill:var(--like); stroke:none; opacity:0; transform-origin:12px 13px; transform:scale(.4); transition:transform .5s cubic-bezier(.3,1.7,.5,1),opacity .2s }
+    .is-liked .h-fill { opacity:1; transform:scale(1) }
+    .h-line { transition:stroke .25s }
+    .is-liked .h-line { stroke:var(--like) }
+    .h-shine { opacity:.5; transition:opacity .3s,stroke .25s }
+    .is-hover .h-shine { opacity:1 }
+    .h-ecg { stroke-dasharray:1 2; stroke-dashoffset:0; transition:stroke .25s }
+    .h-crack { stroke-dasharray:1 2; stroke-dashoffset:1; transition:stroke-dashoffset .35s ease,stroke .25s }
+    .is-broken .h-crack { stroke-dashoffset:0 }
+    .is-liked .h-ecg, .is-liked .h-crack, .is-liked .h-shine { stroke:var(--on-fill) }
+    .h-spark { stroke:var(--like); stroke-width:1.3; opacity:0 }
+    .h-mini { fill:var(--like); stroke:none; opacity:0; transform-box:fill-box; transform-origin:center }
+    .h-ring { fill:none; stroke:var(--like); stroke-width:1; opacity:0; transform-box:fill-box; transform-origin:center }
+
+    /* Download styles */
+    .d-tray { transform-origin:12px 18px }
+    .d-track { opacity:.28; transition:opacity .3s }
+    .is-hover .d-track { opacity:.5 }
+    .d-bar { stroke:var(--accent); stroke-dasharray:1 2; stroke-dashoffset:1; transition:stroke-dashoffset .3s ease }
+    .d-arrow { transform-origin:12px 9px; transition:transform .45s cubic-bezier(.4,1.7,.5,1),opacity .3s }
+    .d-trail { opacity:0 }
+    .d-done { stroke:var(--accent) }
+    .d-done-ring,.d-check { stroke-dasharray:1 2; stroke-dashoffset:1; transition:stroke-dashoffset .25s ease }
+    .d-puff { fill:currentColor; stroke:none; opacity:0; transform-box:fill-box; transform-origin:center }
+    [data-state="busy"] .d-arrow { transform:translateY(3.2px) }
+    [data-state="busy"] .d-bar { stroke-dashoffset:0; transition:stroke-dashoffset var(--dl,1700ms) linear }
+    [data-state="done"] .d-arrow { transform:translateY(3.2px) scale(.5); opacity:0 }
+    [data-state="done"] .d-bar { stroke-dashoffset:0 }
+    [data-state="done"] .d-done-ring { stroke-dashoffset:0; transition:stroke-dashoffset .5s ease .15s }
+    [data-state="done"] .d-check { stroke-dashoffset:0; transition:stroke-dashoffset .4s ease .45s }
+
+    /* Gear styles */
+    .g-rotor,.g-ring,.g-ticks { transform-origin:12px 12px }
+    .g-ring { stroke-width:1.2; stroke-dasharray:7 5.5; stroke:var(--muted); transition:stroke .3s }
+    .is-hover .g-ring, .is-turbo .g-ring { stroke:var(--accent) }
+    .g-core { fill:var(--accent); stroke:none; transform-box:fill-box; transform-origin:center; transition:transform .4s cubic-bezier(.3,1.7,.5,1) }
+    .is-hover .g-core { transform:scale(1.7) }
+    .is-turbo .g-core { transform:scale(2.5) }
+    .g-ticks { opacity:0; stroke:var(--accent) }
+
+    /* Card body & controls */
+    .body { min-width:0; padding:18px clamp(16px,3vw,22px) 20px; display:grid; gap:14px; align-content:start }
+    .head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px }
+    h2 { margin:0; font:700 1.4rem/1.1 var(--display); letter-spacing:-.01em }
+    .tag { font:500 .72rem/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--muted) }
+    .desc { margin:0 }
+    .keys { margin:0; font:400 .78rem/1.5 var(--mono); color:var(--muted) }
+    .events { display:flex; flex-wrap:wrap; gap:6px }
+    .chip {
+      font:500 .72rem/1 var(--mono); letter-spacing:.04em; padding:.65rem .7rem;
+      border:1px solid var(--line); border-radius:3px; background:transparent; color:var(--muted); cursor:pointer;
+      transition:background .2s,color .2s,border-color .2s;
+    }
+    .chip:hover { border-color:var(--ink); color:var(--ink) }
+    .chip:focus-visible { outline:2px solid var(--accent); outline-offset:2px }
+    .chip.is-lit { background:var(--accent); border-color:var(--accent); color:var(--accent-ink) }
+    .readout { margin:0; display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; font:400 .75rem/1.4 var(--mono); color:var(--muted) }
+    .readout code { font:inherit; color:var(--ink); min-width:0; overflow-wrap:anywhere }
+
+    footer { max-width:64ch; margin:0; font-size:.88rem; color:var(--muted) }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration:.01ms !important; animation-duration:.01ms !important }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <p class="eyebrow">24 × 24 grid · 1.5 stroke · Web Components</p>
+      <h1>Living Icons</h1>
+      <p class="lede">Decoupled 3-layer architecture: Generic engine, motion verbs preset library, and declarative icon data rendered via &lt;live-icon&gt; elements.</p>
+      <p class="hint">Use a mouse, touch or the keyboard. The chips under each icon fire the same events if your device can't.</p>
+    </header>
+
+    <main class="grid">
+      <live-icon name="bell"></live-icon>
+      <live-icon name="heart"></live-icon>
+      <live-icon name="download"></live-icon>
+      <live-icon name="gear"></live-icon>
+    </main>
+
+    <footer>
+      The dashed square in each stage is the 20-unit live area inside the 24-unit keyline. Everything is plain SVG, CSS and vanilla script. With reduced motion turned on, states still change but the movement is skipped.
+    </footer>
+  </div>
+
+  <script src="./live-icons.js"></script>
+</body>
+</html>
+`;
+
+writeFileSync(join(dist, 'preview.html'), previewHtml, 'utf8');
+console.log('✓ Created dist/preview.html');
+console.log('Build completed successfully.');

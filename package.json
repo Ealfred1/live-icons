@@ -1,0 +1,14 @@
+{
+  "name": "live-icons",
+  "version": "0.1.0",
+  "description": "Multi-part SVG icons with physics-flavoured motion. No libraries.",
+  "type": "module",
+  "main": "dist/live-icons.js",
+  "scripts": {
+    "lint":    "node scripts/lint.js",
+    "build":   "node scripts/build.js",
+    "preview": "node scripts/build.js && open dist/preview.html"
+  },
+  "keywords": ["svg", "icons", "animation", "web-components"],
+  "license": "MIT"
+}
